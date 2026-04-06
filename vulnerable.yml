@@ -1,0 +1,32 @@
+name: Vulnerable Pipeline
+
+on:
+  pull_request:   # ❌ Untrusted trigger (fork PR allowed)
+
+permissions:
+  id-token: write   # ❌ OIDC enabled
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v2   # ❌ unpinned
+
+      - name: Run attacker-controlled script
+        run: |
+          echo "Running untrusted code"
+          bash exploit.sh   # ❌ attacker can modify this
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/vulnerable-role
+          aws-region: us-east-1
+
+      - name: Access S3
+        run: |
+          aws s3 ls
+          aws s3 cp s3://prod-data-bucket/secret.txt .
