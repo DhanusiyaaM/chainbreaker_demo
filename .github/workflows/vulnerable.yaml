@@ -1,10 +1,11 @@
-name: Vulnerable Pipeline
+name: Vulnerable Pipeline Demo
 
 on:
-  pull_request:   # ❌ Untrusted trigger (fork PR allowed)
+  pull_request:
+    branches: ["*"]
 
 permissions:
-  id-token: write   # ❌ OIDC enabled
+  id-token: write   # ✅ MUST be here (top-level works best)
   contents: read
 
 jobs:
@@ -12,21 +13,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR code
-        uses: actions/checkout@v2   # ❌ unpinned
-
-      - name: Run attacker-controlled script
-        run: |
-          echo "Running untrusted code"
-          bash exploit.sh   # ❌ attacker can modify this
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/vulnerable-role
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-role
           aws-region: us-east-1
 
-      - name: Access S3
+      - name: Upload to S3
         run: |
-          aws s3 ls
-          aws s3 cp s3://prod-data-bucket/secret.txt .
+          aws s3 sync . s3://prod-backup-bucket
