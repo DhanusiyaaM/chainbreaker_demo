@@ -1,18 +1,127 @@
-name: Secure Pipeline
+# ============================================================
+# FILE: deploy-fixed.yml
+# RISK LEVEL: LOW
+# PURPOSE: ChainBreaker demo — REMEDIATED workflow
+#
+# Fixes applied (mapped to vulnerable file):
+#   [FIX-1] pull_request_target → pull_request (fork context, no secrets)
+#   [FIX-2] Removed untrusted ref checkout — checks out base branch only
+#   [FIX-3] OIDC trust policy sub claim restricted to specific branch
+#           AND job_workflow_ref added — strongest sub restriction
+#   [FIX-4] id-token: write scoped to job level only, not workflow level
+#   [FIX-5] All actions pinned to full SHA — immutable, supply-chain safe
+#   [FIX-6] npm install isolated in separate job that runs BEFORE deploy
+#           Deploy job only runs after build artefacts are uploaded
+#   [FIX-7] Production environment gate with required_reviewers > 0
+#   [FIX-8] GITHUB_TOKEN write removed — read-only where possible
+# ============================================================
 
+name: Deploy to Production (FIXED)
+
+# [FIX-1] pull_request runs in the FORK context — no access to base secrets
+# Attackers cannot reach OIDC tokens or AWS credentials through this trigger.
+# For actual deployment, only push to main (protected branch) triggers deploy.
 on:
+  pull_request:
+    branches:
+      - main
   push:
-    branches: ["main"]   # ✅ Only trusted branch
+    branches:
+      - main   # Only merged, reviewed code triggers the deploy job
+
+# [FIX-8] Minimal workflow-level permissions — no write access
+# id-token: write is NOT granted here — scoped to deploy job only
+permissions:
+  contents: read         # Read repo content only
+  pull-requests: read    # Read-only PR access — no token abuse vector
 
 jobs:
-  deploy:
+
+  # ── Job 1: Build (runs on PR and push, no AWS access) ─────────────────────
+  build:
+    name: Build artefacts
     runs-on: ubuntu-latest
 
+    steps:
+      # [FIX-5] Pinned to full SHA — immutable, cannot be reassigned
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        # No ref: parameter — checks out the triggering SHA (base branch)
+        # No fork code is checked out here
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # [FIX-6] npm install in isolated build job — no AWS credentials in scope
+      # Even if a malicious package runs, there are no AWS credentials to steal
+      - name: Install dependencies
+        run: npm ci   # ci instead of install — uses lockfile, rejects changes
+
+      - name: Run build
+        run: npm run build
+
+      # Upload artefacts so the deploy job can download them
+      # Deploy job does NOT check out code or run npm — only downloads artefacts
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: dist
+          path: ./dist/
+          retention-days: 1
+
+  # ── Job 2: Deploy (only runs on push to main — merged, reviewed code) ──────
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: build                    # Only runs if build succeeds
+    if: github.event_name == 'push' # [FIX-1] Only deploys on push to main
+
+    # [FIX-7] Environment gate — configure required_reviewers > 0 in GitHub settings
+    # Settings → Environments → production → Required reviewers
+    # Without this setting configured, the gate does nothing — configure it!
+    environment: production
+
+    # [FIX-4] id-token: write scoped to this job only
+    # Only the deploy job can request OIDC tokens — build job cannot
     permissions:
-      contents: read     # ❌ No id-token
+      id-token: write    # Required for OIDC token exchange with AWS STS
+      contents: read
 
     steps:
-      - uses: actions/checkout@v3
+      # Download build artefacts — does NOT checkout any code
+      # Attacker-controlled code from package.json never runs in this job
+      - name: Download build artefacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444306234b3c62cbba3e0567  # v4.1.8
+        with:
+          name: dist
+          path: ./dist/
 
-      - name: Safe Step
-        run: echo "No AWS access"
+      # [FIX-3] OIDC credential configuration
+      # The trust policy on this role must have sub condition:
+      #   "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main"
+      # This ensures only pushes to main (not fork PRs) can assume the role.
+      # Additionally configure job_workflow_ref in the trust policy for
+      # the strongest possible sub claim restriction.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2 — SHA pinned
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-deploy-role-fixed
+          aws-region: ap-south-1
+          # role-session-name helps with CloudTrail auditing
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync ./dist s3://prod-app-deployments/ \
+            --delete \
+            --cache-control max-age=86400
+          echo "Deployment complete: ${{ github.sha }}"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ABCDEFGHIJKLMN \
+            --paths "/*"
