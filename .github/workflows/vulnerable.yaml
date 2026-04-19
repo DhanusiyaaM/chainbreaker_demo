@@ -1,27 +1,91 @@
-name: Vulnerable Pipeline Demo
+# ============================================================
+# FILE: deploy-vulnerable.yml
+# RISK LEVEL: CRITICAL
+# PURPOSE: ChainBreaker demo — HIGH RISK workflow
+#
+# Vulnerabilities present in this file:
+#   [1] pull_request_target trigger — runs in base repo context
+#       even when triggered by a fork PR
+#   [2] Untrusted fork checkout via github.event.pull_request.head.sha
+#       — attacker code runs on the runner
+#   [3] OIDC configured with no sub claim restriction on branch
+#       — ANY branch from the repo can assume the role
+#   [4] id-token: write granted at workflow level (overly broad)
+#   [5] Actions pinned to mutable tags (@v4) not SHA — supply chain risk
+#   [6] npm install runs before credential injection — dependency confusion
+#   [7] No environment gate — no reviewer approval required
+#   [8] GITHUB_TOKEN granted write permissions — token abuse possible
+# ============================================================
 
+name: Deploy to Production (VULNERABLE)
+
+# [VULN-1] pull_request_target gives base repo context to fork PRs
 on:
-  pull_request:
-    branches: ["*"]
+  pull_request_target:
+    types: [opened, synchronize]
+    branches:
+      - main
 
+# [VULN-4] id-token: write at workflow level is overly broad
+# This allows ANY job in this workflow to request OIDC tokens
 permissions:
-  id-token: write   # ✅ MUST be here (top-level works best)
+  id-token: write        # Required for OIDC — but scoped too broadly
   contents: read
+  pull-requests: write   # [VULN-8] write permission on PRs — token abuse risk
 
 jobs:
   deploy:
+    name: Build and Deploy
     runs-on: ubuntu-latest
+    # NOTE: No environment gate declared — no required_reviewers check
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      # [VULN-2] Checks out the fork PR code onto the runner
+      # github.event.pull_request.head.sha = attacker's commit
+      - name: Checkout PR code
+        uses: actions/checkout@v4    # [VULN-5] mutable tag, not SHA-pinned
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/github-actions-role
-          aws-region: us-east-1
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
-      - name: Upload to S3
+      # [VULN-6] npm install runs BEFORE AWS credentials are injected
+      # A malicious package.json in the fork can execute code here
+      # with no AWS credentials yet — but sets up for later exfiltration
+      - name: Install dependencies
+        uses: actions/setup-node@v4  # [VULN-5] mutable tag
+        with:
+          node-version: '20'
+
+      - name: Run npm install
+        run: npm install             # Reads package.json from fork — PPE vector
+
+      - name: Run build
+        run: npm run build           # Executes fork-controlled build script
+
+      # [VULN-3] OIDC configured — credentials will be injected after this
+      # Trust policy has sub = "repo:org/repo:*" (any branch, no restriction)
+      # ChainBreaker detects: oidc_possible=true, no branch restriction → HIGH
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4   # [VULN-5] mutable tag
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-deploy-role
+          aws-region: ap-south-1
+
+      # At this point AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+      # AWS_SESSION_TOKEN are all injected into the runner environment.
+      # The fork-controlled build scripts in earlier steps could have
+      # set up exfiltration to run here via a background process or
+      # a malicious postinstall hook that waits for credentials.
+
+      - name: Deploy to S3
         run: |
-          aws s3 sync . s3://prod-backup-bucket
+          aws s3 sync ./dist s3://prod-app-deployments/ --delete
+          aws s3 cp ./dist/index.html s3://prod-app-deployments/index.html
+          echo "Deployment complete"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ABCDEFGHIJKLMN \
+            --paths "/*"
