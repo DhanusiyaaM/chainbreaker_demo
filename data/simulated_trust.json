@@ -1,12 +1,12 @@
 {
-  "_comment": "Trust policy for the VULNERABLE role (github-deploy-role)",
-  "_note": "Sub claim is repo-only with wildcard — any branch can assume this role",
-  "_chainbreaker_expected": "Step 2 will flag: trust_risk=HIGH (+40), no branch restriction",
+  "_comment": "Trust policy for the FIXED role (github-deploy-role-fixed)",
+  "_note": "Sub claim restricted to main branch only AND environment gate",
+  "_chainbreaker_expected": "Step 2 will flag: trust_risk=LOW (+8), branch restricted, no PRT trigger",
 
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "GitHubActionsOIDC",
+      "Sid": "GitHubActionsOIDCStrictBranch",
       "Effect": "Allow",
       "Principal": {
         "Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
@@ -14,10 +14,9 @@
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:*"
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main",
+          "token.actions.githubusercontent.com:environment": "production"
         }
       }
     }
