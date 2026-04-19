@@ -1,0 +1,22 @@
+{
+  "_comment": "Simulated S3 bucket config — use as data/simulated_bucket.json in ChainBreaker Mode B",
+  "_chainbreaker_expected": "Step 4: versioning=false amplifies DELETE to CRITICAL, logging=false = no trace",
+
+  "source": "simulated",
+  "bucket_name": "prod-app-deployments",
+  "bucket_purpose": "web_hosting",
+  "region": "ap-south-1",
+
+  "versioning_enabled": false,
+  "logging_enabled": false,
+  "public_access_blocked": true,
+
+  "contains_hints": [
+    "index.html",
+    "assets/",
+    "static/js/",
+    "static/css/"
+  ],
+
+  "replication_rules": []
+}
