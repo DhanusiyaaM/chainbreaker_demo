@@ -1,0 +1,46 @@
+{
+  "_comment": "Simulated IAM permission policy — use as data/simulated_policy.json in ChainBreaker Mode B",
+  "_note": "Role has s3:PutObject, s3:DeleteObject, s3:GetObject on prod-app-deployments",
+  "_chainbreaker_expected": "Step 3 will flag: capability=DATA_TAMPERING, no versioning amplifies DELETE",
+
+  "source": "simulated",
+  "role_name": "github-deploy-role",
+  "permission_boundary": null,
+
+  "attached_policies": [
+    {
+      "PolicyName": "DeployToS3Policy",
+      "PolicyArn": "arn:aws:iam::123456789012:policy/DeployToS3Policy",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "S3DeployAccess",
+            "Effect": "Allow",
+            "Action": [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:DeleteObject",
+              "s3:ListBucket",
+              "s3:GetBucketLocation"
+            ],
+            "Resource": [
+              "arn:aws:s3:::prod-app-deployments",
+              "arn:aws:s3:::prod-app-deployments/*"
+            ]
+          },
+          {
+            "Sid": "CloudFrontInvalidation",
+            "Effect": "Allow",
+            "Action": [
+              "cloudfront:CreateInvalidation"
+            ],
+            "Resource": "arn:aws:cloudfront::123456789012:distribution/ABCDEFGHIJKLMN"
+          }
+        ]
+      }
+    }
+  ],
+
+  "inline_policies": []
+}
