@@ -15,7 +15,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main",
+          "token.actions.githubusercontent.com:sub": "repo:DhanusiyaaM/chainbreaker_demo:ref:refs/heads/main",
           "token.actions.githubusercontent.com:environment": "production"
         }
       }
