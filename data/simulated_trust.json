@@ -1,0 +1,25 @@
+{
+  "_comment": "Trust policy for the VULNERABLE role (github-deploy-role)",
+  "_note": "Sub claim is repo-only with wildcard — any branch can assume this role",
+  "_chainbreaker_expected": "Step 2 will flag: trust_risk=HIGH (+40), no branch restriction",
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GitHubActionsOIDC",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:*"
+        }
+      }
+    }
+  ]
+}
